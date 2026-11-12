@@ -8,7 +8,7 @@ Astra Core 是以人力为首个领域的业务 AI 场景运行框架。本工�
 
 | 材料 | 用途 | 是否构成业务依据 |
 | --- | --- | --- |
-| [唯一说明书](docs/baseline/specification.md) | 需求、架构、决策、验收和未决项 | main 上明确确认的内容是基线；分支版本是候选稿 |
+| [唯一说明书](docs/baseline/specificationV2.md) | 需求、架构、决策、验收和未决项 | main 上明确确认的内容是基线；分支版本是候选稿 |
 | [当前 Handoff](docs/handoff/current.md) | 进度、下一步、阻塞和任务指导 | 不新增或覆盖需求结论 |
 | 本任务纪要与提案 | 记录本次输入、取舍、建议与确认 | 解释修订来源，不能自动当作已确认需求 |
 
@@ -21,7 +21,7 @@ AGENTS.md                         Codex 的执行规则
   astra-submit-pr/
   astra-merge-pr/
 docs/
-  baseline/specification.md        唯一业务说明书
+  baseline/specificationV2.md      唯一业务说明书
   handoff/current.md                项目当前交接
 collaboration/
   templates/                      任务 Handoff、纪要、提案模板
