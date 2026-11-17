@@ -1,6 +1,6 @@
 # 任务提案：module4.2_deep_design
 
-状态：用户已确认本文件“第 4 章审阅稿”及 P-005 关联修改，已写入工作分支候选说明书。前文保留讨论来源，当前获确认的修订见审阅稿。业务内容见[唯一说明书 V2](../../../docs/baseline/specificationV2.md)。
+状态：用户已确认并落稿“§4.2.7 最新落稿审阅稿”及全部关联修改。此前的四对象方案和 Java 示例作为讨论来源保留，当前设计采用 Session、Execution、Node 及 M2 入口。业务内容见[唯一说明书 V2](../../../docs/baseline/specificationV2.md)。
 
 ## 目标与依据
 
@@ -175,3 +175,428 @@ F-003 中，Execution 依据解析内容和制度检索结果推进检查，并�
 Session 的具体创建和查找组件、新 Execution 的场景版本选择策略、Node 的结构化返回契约，以及并行控制和终态结果清理仍待讨论。
 
 第 3 章 P-005 原写为“Runner 管理 Execution 的运行、等待输入、完成、失败及取消”。用户已同意同步改为“Execution 根据本次规则管理运行、等待输入、完成、失败及取消，关联场景、节点和结果。Runner 负责执行节点。SSE 连接生命周期与 Execution 独立”，该关联修改已落稿。
+
+## §4.2.7 对象接口契约设计建议
+
+状态为 AI 建议、待确认。依据为当前分支说明书 §4.2.1—§4.2.4、§4.2.6。以下操作名和字段名用于需求级接口讨论，具体语言类型与实现方式待设计。
+
+### 对象字段与操作
+
+| 对象 | 主要字段建议 | 操作建议 |
+| --- | --- | --- |
+| Session | sessionId、ownerRef、mode、conversationContext、currentExecutionId、expiresAt | startExecution 接收选定的场景版本及本次输入，校验会话有效且当前执行已结束，创建并关联新 Execution。currentExecution 获取当前关联。finishExecution 接收已确定的执行终态及待继承条件，核对关联后释放当前执行，按完成状态更新可继承条件。 |
+| Execution | executionId、sessionId、sceneVersionRef、rulesRef、input、state、context、nodeRuns、pendingInput、result、error | start 按规则启动。acceptNodeResult 接收某次节点运行结果。resume 接收关联回复。cancel 接受显式取消。onTimeout 处理适用超时。snapshot 提供状态及可返回内容的只读视图。 |
+| Node | nodeId、type、config，归属场景版本 | execute 接收节点输入及本次调用上下文，返回节点结果。具体实现按需调用 M3、M4、M5。 |
+| Runner | 运行依赖与配置由 M2 装配 | run 接收 Execution 已确定的一次节点调用，调用对应 Node 并交回运行结果。每次调用携带所需的关联标识、时限和取消信号。 |
+
+Session 的创建、读取、缓存写入及所属身份校验由 M2 接入处理组织，具体模块位置待确认。startExecution 对 Session 对象的建议职责为关联新执行并维护单个未结束执行约束，Session 在缓存中的逻辑包含关系通过执行标识表达。
+
+### Execution 与 Runner 之间的输入输出
+
+Execution 的状态操作返回本次推进结果，包含新的执行状态、零个或多个已满足条件的节点调用，以及需要向 M1 返回的追问、最终结果或结束原因。返回零个节点时可能正在等待其他在途节点或用户回复，结束与否根据执行状态判断。输出多个节点用于表达已经具备并行执行条件的调用，汇聚规则继续由 Execution 判断。
+
+一次节点调用建议包含 executionId、nodeId、invocationId、节点定义引用、input，以及可信调用身份、traceId、截止时间和取消信号组成的调用上下文。调用上下文按节点实际需要提供，节点参数与可信身份分别组织。
+
+一次节点运行结果建议包含相同的关联标识，以及以下一种结果内容。
+
+| 结果内容 | 用途 |
+| --- | --- |
+| 正常输出 | 携带节点输出和可供规则判断的事实，例如候选口径、人员查询结果或分段检查意见。 |
+| 需要用户输入 | 携带缺失字段、提示或选项。Execution 根据场景规则决定进入等待或生成业务提示并结束。 |
+| 调用失败 | 携带错误分类、错误码及必要的依赖错误信息。Execution 结合规则与已有尝试情况决定后续处理。 |
+
+invocationId 区分同一 Node 的各次运行，重试或循环产生新的调用标识，其记录保存在 Execution 的 nodeRuns 中。执行规则通过该记录关联节点、循环位置、分支和尝试次数。Node 返回输出与判断事实，Execution 确定后续节点。
+
+### 等待、重复结果与取消
+
+pendingInput 建议保存本次追问标识、待补内容和续接位置。resume 接收追问标识、回复标识和内容，服务端结合 Session 归属校验确认关联。Execution 仅在当前等待有效时处理，重复回复只触发一次续接。F-002 的澄清继续使用原 Execution，F-001、F-003 按既定一次性规则结束或重新发起。
+
+Execution 接收节点结果时校验调用归属及接收状态。重复返回和终态后的迟到返回维持当前状态。取消、超时和结果到达需按同一 Execution 一致地处理，终态确认与对应结果同时确定，具体并发实现待设计。
+
+取消信号随节点调用传递，Execution 接受取消后停止后续触发，由 M2 按依赖能力通知在途调用。Runner 持有完成当前调用所需的临时信息，跨节点和跨请求的执行进度保存在 Execution 中。运行时调用句柄的具体承载位置待实现设计。
+
+Session 更新当前执行关联和继承条件时须核对 executionId，避免旧执行的重复完成通知影响新执行。并发新建执行须共同遵守单个未结束 Execution 的约束。接口方案需包含该一致性要求，具体缓存更新实现待设计。
+
+### 三功能应用与待确认项
+
+F-001 中，人员查询 Node 返回人员匹配结果，Execution 按规则决定继续查余额或返回业务提示。F-002 中，口径识别 Node 返回待选内容，Execution 保存 pendingInput 并等待，resume 后确定后续调用。F-003 中，检查 Node 返回各项结论，Execution 根据汇聚规则形成最终结果。
+
+建议先确认 Session 通过 startExecution 和 finishExecution 维护会话级关联、Execution 提供上述少量状态操作、Runner 按一次节点调用执行三个接口方向。操作名称、字段类型、并行控制的详细契约及超时取值仍待逐项讨论。
+
+## 三场景接口伪代码
+
+2026-11-17 按用户要求补充。状态为讨论示意、待确认。以下采用事件驱动写法表达节点调用结束后将结果交回 Execution 的过程。操作名、规则表达方式和节点拆分属于建议。场景版本提供规则定义，Execution 固定引用并应用规则。伪代码中的 dispatch、waitForInput、succeed、fail 表示 Execution 内部操作。
+
+### 共用接口与调用过程
+
+```text
+Session.startExecution(sceneVersion, input)
+    校验归属、有效期及当前执行已结束
+    创建 Execution，关联本 Session、场景版本和本次输入
+    将可继承条件复制到 Execution.context
+    关联 currentExecutionId，并返回 Execution
+
+Execution.start()
+    进入 RUNNING，按本次规则处理 START
+
+Execution.acceptNodeResult(result)
+    校验 executionId、invocationId 及本次调用尚未处理
+    终态或重复结果到达时返回当前状态
+    将本次结果记录到 nodeRuns 和 context
+    调用失败时，按本次规则决定有限重试或 fail
+    正常结果交给本次场景规则，确定下一次推进结果
+
+Execution.resume(promptId, replyId, content)
+    校验当前处于 WAITING_INPUT、追问匹配、回复尚未处理
+    记录回复，按 pendingInput 中的续接位置进入 RUNNING
+    按本次规则处理 USER_REPLY
+
+Runner.run(invocation)
+    node = 取得 invocation.nodeRef 对应的节点
+    result = node.execute(invocation.input, invocation.callContext)
+    返回附带 executionId、invocationId 的结果
+    调用抛错时返回调用失败结果
+
+M2 推进(execution, 操作)
+    一致地执行操作并保存 Execution 状态及已确定的节点调用
+    若进入终态，联动执行 Session.finishExecution
+    将本次新增的追问、结果或结束原因交给 M1
+    对每个已确定的节点调用
+        Runner 执行一次调用
+        完成后再次进入 M2 推进(execution, acceptNodeResult(result))
+```
+
+M2 推进是对接操作、状态保存和调用结果的流程描述。后续节点、等待及终态由 Execution 的规则决定。调用完成后重新进入推进过程可用任务或回调实现，具体执行机制待设计。
+
+Session.finishExecution 核对 currentExecutionId 与已结束 Execution 一致，仅在正常完成时更新本次确定的可继承条件，然后释放当前执行关联。一次性 Session 随之结束，多轮 Session 保留有效上下文。上述关联更新与 Execution 终态需保持一致，重复完成通知只收尾一次。
+
+### F-001 规则示意
+
+```text
+on START
+    dispatch("识别意图与提取参数", input.文本)
+
+on "识别意图与提取参数" 完成
+    若无法识别意图
+        succeed("无法识别用户意图")
+    若信息不足或业务输入校验未通过
+        succeed(对应业务提示)
+    若意图为补卡
+        dispatch("生成页面JSON", 已校验的补卡参数)
+    若意图为本人请假
+        dispatch("查询余额", 已核验身份中的本人标识)
+    若意图为他人请假
+        dispatch("查询人员", 提取的人员信息)
+
+on "查询人员" 完成
+    若人员匹配数不等于 1
+        succeed("信息不足，无法办理")
+    dispatch("查询余额", 匹配人员的标识)
+
+on "查询余额" 完成
+    若余额不足
+        succeed("剩余请假余额不足")
+    dispatch("生成页面JSON", 本次请假参数及所需人员信息)
+
+on "生成页面JSON" 完成
+    succeed(符合场景输出契约的 JSON)
+```
+
+每次 dispatch、waitForInput、succeed 或 fail 都结束当前规则分支并交回推进结果。JSON 字段及各类输入异常提示遵循 §3.2.1，包括为他人请假输出姓名、半天粒度、休息时间提醒和补卡日期限制。
+
+入口通过一次性 Session.startExecution 创建本次 Execution 并调用 start。用户按提示重新提交完整输入时，创建新的 Session 和 Execution。
+
+### F-002 规则与续接示意
+
+```text
+on START
+    dispatch("理解问题与检索口径", input.问题 + context.继承条件)
+
+on "理解问题与检索口径" 完成
+    若找不到适用口径
+        succeed("暂时无法确定口径")
+    若缺少条件或有多个口径待选
+        waitForInput(提示或选项, 续接位置 = "确认查询条件")
+    保存本次已确定的查询条件
+    dispatch("查询业务数据", context.本次查询条件)
+
+on USER_REPLY，续接位置为 "确认查询条件"
+    dispatch("校验并补全查询条件", 本次回复 + context.待补条件)
+
+on "校验并补全查询条件" 完成
+    若回复仍不足
+        waitForInput(新的提示或选项, 续接位置 = "确认查询条件")
+    保存本次已确定的查询条件
+    dispatch("查询业务数据", context.本次查询条件)
+
+on "查询业务数据" 完成
+    若正常返回无数据
+        succeed("当前条件下暂无数据", 可继承条件 = context.本次查询条件)
+    dispatch("分析并组织展示", 查询结果 + 本次口径)
+
+on "分析并组织展示" 完成
+    succeed(分析及展示结果, 可继承条件 = context.本次查询条件)
+```
+
+```text
+session = M2 创建多轮 Session
+executionA = session.startExecution(选定场景版本, "本月福州分行离职率")
+M2 推进(executionA, start())
+
+用户选择口径后
+    M2 校验 Session 归属及回复关联
+    executionA = session.currentExecution()
+    M2 推进(executionA, resume(本次追问标识, 回复标识, 用户选择))
+
+executionA 正常完成，用户再问 "去年同期呢"
+    executionB = session.startExecution(M1 本次选定的场景版本, 新问题)
+    M2 推进(executionB, start())
+```
+
+新输入按业务规则修正仍适用的继承条件。M1 为新 Execution 选择版本的具体策略仍待确认。条件更新在本次 Execution 正常完成时发生，失败或取消后继续采用此前已确认的继承规则。
+
+### F-003 规则示意
+
+```text
+on START
+    dispatch("解析Word", input.报告临时引用)
+
+on "解析Word" 完成
+    dispatch("检索适用制度", 解析后的报告内容)
+
+on "检索适用制度" 完成
+    若找不到或无法确定适用制度
+        succeed("制度依据不明确")
+    dispatch("逐项检查", 报告内容 + 制度依据)
+
+on "逐项检查" 完成
+    保存各项结论及依据
+    dispatch("汇总检查结果", 各项结论及修改意见)
+
+on "汇总检查结果" 完成
+    succeed(总体意见 + 逐项检查 + 修改意见)
+```
+
+一次性 Session 包含本次报告检查 Execution。检查项可输出满足要求、不满足要求或无法判断。Word 解析失败通过错误结果返回约定提示，知识库或模型调用失败按场景规则有限重试。用户修改报告后重新上传，创建新的 Session 和 Execution。
+
+### 共用取消与异常约定
+
+Execution.cancel 和 onTimeout 通过同一 M2 推进入口处理，与节点结果回写串行或采用等价的一致性控制。取消后停止触发后续节点，按依赖能力通知在途调用。Runner 执行前及调用期间按依赖能力检查取消信号，终态后的迟到结果保持原状态。重试由 Execution 规则决定并产生新 invocationId。以上流程只在有效临时状态范围内运行，持久化恢复能力仍遵循现有首期范围。
+
+## Java 对象协作教学示例
+
+2026-11-17 用户明确要求 Java 代码以理解接口。示例见 [M2ObjectExample.java](M2ObjectExample.java)，包括 Session、Execution、Node、Runner 和三场景的调用次序。状态为教学示例，接口细节待确认。
+
+示例用单线程顺序调用、固定节点返回值和 String 输入输出展示对象关系。Execution.next 根据当前执行位置和已取得的结果确定 NodeCall、NeedInput 或 Completed，Runner 只执行 NodeCall。节点结果保存在 Execution 中。F-002 等待后通过 Session 取得原 Execution 并续接，正常完成后的下一问创建新 Execution，继承已选口径。
+
+F-001 展示本人请假路径，F-003 展示顺序检查路径。节点中模拟数据仅用于阅读，规则暂直接写在 Execution 方法中。场景版本加载、实际业务输入输出校验、鉴权、缓存、并发、重试、取消和超时的完整实现留待后续设计。按节点名称保存输出适用于本示例的单次顺序调用，循环或重试的正式契约使用前述 invocationId 区分各次运行。
+
+验证范围为 Java 17 编译检查，已通过。编译产物写入系统临时目录。示例调用流程尚未运行，说明书保持当前已确认内容。
+
+## 类、接口与 Node 类型清单
+
+2026-11-17 用户要求列出各类及接口，并明确 Node 类型。本节中现有方法按 M2ObjectExample.java 核对，正式接口和 Node 类型枚举为待确认建议。
+
+### 示例中各类型的接口
+
+| 类型 | 构造或方法 | 职责 |
+| --- | --- | --- |
+| Session | Session(boolean multiTurn) | 建立一次性或多轮 Session。 |
+| Session | Execution startExecution(Scene scene, String input) | 创建并关联一次 Execution。 |
+| Session | Execution currentExecution() | 取得当前关联的 Execution。 |
+| Session | void finishExecution(Execution execution) | 结束关联，按正常完成状态更新继承条件。 |
+| Execution | Execution(String sessionId, Scene scene, String input, String inheritedMetric) | 构造本次执行。 |
+| Execution | Decision next() | 按本次规则确定节点调用、等待或完成。 |
+| Execution | void acceptNodeResult(String nodeName, String output) | 保存节点输出，推进顺序执行位置。 |
+| Execution | void resume(String reply) | 校验示例中的口径选择并续接。 |
+| Execution | void fail()、boolean isTerminal() | 标记失败、判断终态。 |
+| Execution | private Decision leaveRules()/queryRules()/reportRules() | 示例内部的三个场景规则。 |
+| Execution | private Completed complete(String result) | 设置成功终态并返回结果。 |
+| Node | String execute(String input) | 执行节点处理。 |
+| Runner | String run(NodeCall call) | 执行一次指定节点调用。 |
+| Decision | 封闭返回类型，无行为方法 | 约束本次推进结果的类型。 |
+| NodeCall | NodeCall(String name, Node node, String input)，name()/node()/input() | 携带一次节点调用。 |
+| NeedInput | NeedInput(String prompt)，prompt() | 携带等待输入提示。 |
+| Completed | Completed(String result)，result() | 携带最终结果。 |
+| Scene | F001、F002、F003 | 示例场景枚举。 |
+| State | RUNNING、WAITING_INPUT、SUCCEEDED、FAILED、CANCELLED | 执行状态枚举。 |
+| M2ObjectExample | static void drive(Session, Execution, Runner)、public static void illustrateThreeScenes() | 示例外层的推进过程和三个场景调用入口。 |
+
+上述表列出手写方法与 record 字段访问方法。record 的构造、equals/hashCode/toString 以及 enum 的标准方法由 Java 提供。
+
+### 正式接口拟议调整
+
+Session 使用通用场景版本引用和会话上下文，替换示例中的 Scene.F002 判断及专用 confirmedMetric。Execution 引用场景版本规则，增加结构化运行结果、追问及回复标识、取消与超时操作，按 invocationId 区分节点各次运行。Runner 以节点调用及关联结果作为输入输出，维持无状态执行职责。
+
+Node 建议提供 id()、type()、execute(NodeInput input, NodeContext context) 三个方法。id 标识场景版本内的节点，type 标识预定义类型。NodeInput 按节点配置的契约组织数据，NodeContext 按需提供可信身份、追踪信息、时限、取消信号和必要的只读运行信息。节点返回 NodeResult，包含输出、控制判断、待补内容或调用错误。Execution 接收这些结果后，按规则确定后续可执行节点及状态转换。
+
+Node 的配置随场景版本装配到节点实例中。同一节点的各次运行数据在 Execution 中按调用标识保存。NodeInput、NodeContext、NodeResult 为接口数据结构，具体字段及 Java 类型继续待确认。
+
+### Node 类型建议
+
+来源说明书 §3.1.2 已列十类逻辑节点，§4.2.1 另有循环 Node 和 ReAct Node 的示例。建议把循环显式列为 LOOP，ReAct 作为 AGENT 的一种策略。如此形成以下十一种候选类型，该枚举及分类调整待用户确认。
+
+| NodeType 建议值 | 逻辑类型 | 节点处理与输出 | Execution 的职责 |
+| --- | --- | --- | --- |
+| MODEL | 模型 | 通过 M3 处理提示词、模型调用及输出解析，返回结构化结果 | 使用结果推进规则 |
+| TOOL | 工具 | 通过 M4 调用场景允许的工具，返回业务结果或错误 | 决定后续步骤及适用重试 |
+| KNOWLEDGE_RETRIEVAL | 知识检索 | 通过 M5 返回检索内容及引用依据 | 将依据用于后续节点输入 |
+| DOCUMENT_PARSE | 文档解析 | 通过 M5 返回文档文本和结构 | 保存临时解析结果并推进 |
+| CODE | 代码处理 | 调用已注册的处理逻辑，返回映射、计算或校验结果 | 使用结果推进规则 |
+| CONDITION | 条件分支 | 返回条件计算结果或分支键 | 按场景连接关系触发对应分支 |
+| PARALLEL | 并行分发 | 输出本次分发所需的数据及候选分支信息 | 按规则产生多个调用并保存各分支状态 |
+| JOIN | 结果汇聚 | 对传入的分支结果合并或转换 | 判断汇聚条件何时满足，再触发汇聚节点 |
+| LOOP | 循环 | 计算继续或退出条件，可按场景需要使用 M3 的判断结果 | 保存轮次及中间状态，触发循环体或后续节点 |
+| AGENT | Agent 组合 | 按策略产生本轮行动建议或完成判断，ReAct 为候选策略之一 | 校验允许范围、轮次和终止条件，推进模型或工具调用并保存运行信息 |
+| RETURN | 结果返回 | 整理符合场景输出契约的结果 | 确认执行终态，交给 M1 返回 |
+
+控制类节点提供本次处理结果，节点触发及状态转换继续归 Execution 规则管理。Agent 组合的内部编排展开方式和子调用追踪规则仍待细化。
+
+用户追问先按现有 WAITING_INPUT 和待补内容契约表达，暂以现有结果结构讨论。若后续需要编排专用交互节点，再讨论是否扩展类型。
+
+### 示例节点与候选类型的映射
+
+F-001 的提取参数对应 MODEL，人员及余额查询对应 TOOL，条件判断对应 CONDITION，页面数据组织可对应 CODE，最终输出对应 RETURN。
+
+F-002 示例中的“理解问题并检索口径”覆盖两个能力，正式编排建议拆为 MODEL 与 KNOWLEDGE_RETRIEVAL。接口取数对应 TOOL，分析对应 MODEL，展示数据整理可对应 CODE，输出对应 RETURN。
+
+F-003 的解析报告对应 DOCUMENT_PARSE，检索制度对应 KNOWLEDGE_RETRIEVAL，逐项语义检查对应 MODEL，结果合并可按具体处理采用 CODE 或 MODEL，输出对应 RETURN。是否使用 PARALLEL、JOIN 或 LOOP，依实际报告处理规则确认。
+
+## 四对象接口与完整调用链审阅稿
+
+2026-11-17 用户要求先展示 Session、Execution、Node、Runner 的接口定义，再展示它们串联的完整 Java 调用链，以便判断设计。对应文件为 [M2CallChain.java](M2CallChain.java)。
+
+文件包含四个核心接口、所用传参和返回类型、DefaultRunner 实现以及 M2Entry 的 start、reply、cancel 和内部推进方法。M2Entry 连接对象调用，Execution.next 决定执行节点、等待输入或返回终态。Node 执行结果经 DefaultRunner 包装后交回 Execution.acceptNodeResult。正常完成或失败结束后，调用 Session.finishExecution。等待时向 M1 返回追问，后续通过 Session.currentExecution 找到原执行并调用 resume。
+
+本稿统一 next 的返回契约，终态返回 Finish，等待返回 WaitForInput，运行期间根据规则返回 RunNode 或进入等待、结束。此前教学示例 next 只允许 RUNNING，该行为在本稿中调整，以便取消和等待状态也能通过统一结果表达。Session.finishExecution 须按已讨论的归属与终态校验及幂等要求实现。
+
+接口实现方式仍待用户判断。Session、Execution 的内部规则实现以接口契约表达，源文件实现了 Runner 与调用串联。示例聚焦同步顺序调用及用户等待，实际并行调度、状态并发更新、持久化和取消在途调用等完整实现仍待设计。
+
+所有 Java 传参类型均在同一文件定义，已通过 Java 17 编译检查。调用流程尚未运行，说明书尚未写入本轮接口方案。
+
+## Runner 是否独立保留
+
+2026-11-17 用户询问 Runner 是否仍有保留必要。结论状态为 AI 建议、待确认。
+
+按 M2CallChain.java 当前职责，DefaultRunner 仅调用 Node.execute、转换调用异常、附加 Execution 与调用关联标识。节点选择和状态转换由 Execution 决定，推进循环及 Session 收尾由 M2Entry 执行。独立 Runner 对当前调用者隐藏的复杂性有限。
+
+建议合并当前 Runner 的单次调用职责到 M2 接入执行流程，保留 Session、Execution、Node 三个核心对象接口，以及串接调用的 M2 入口。入口向 Execution 取得推进决定，直接执行 Node，将输出或错误包装成 NodeRunResult 交回 Execution。错误转换和调用标识继续保留，重试、分支、等待和终态仍由 Execution 的规则管理。
+
+Runner 无状态这一属性本身不构成删除理由。本建议依据是现有 Runner 的职责与 M2 入口重叠、接口只承担少量转发。后续若出现独立的执行资源控制或多种执行实现，再根据实际契约判断是否抽取运行模块。
+
+该建议调整此前已确认的四对象设计，需用户确认后更新说明书及相应 Java 审阅稿。当前保留原稿作为比较依据。
+
+## §4.2.7 最新落稿审阅稿
+
+2026-11-17 用户先要求查看本稿，随后回复“确认，请落稿”，并要求更新项目交接材料及推送工作分支。本稿及末尾关联修订已获确认并写入本分支说明书，包括合并 Runner 职责、十一类 NodeType 和节点调用集合。
+
+### 拟写入 §4.2.7 的正文
+
+本节细化 P-004、P-005、P-006、P-007。Session 管理会话及所属 Execution，Execution 保存本次规则、状态和运行信息，Node 完成具体处理。M2 入口串接对象调用，按 Execution 的推进决定调用 Node，将输出或错误交回 Execution，并完成会话收尾。原 Runner 的单次节点调用、错误转换及结果包装职责合并到 M2 入口。
+
+以下接口名和字段名表达需求级契约，具体 Java 类型和传输协议留待实现设计。业务规则、节点配置和输入输出契约由场景版本提供。
+
+##### 4.2.7.1 Session 接口
+
+Session 保存 sessionId、会话归属、一次性或多轮模式、会话上下文、currentExecutionId 和有效期信息。一个 Session 可以先后包含多个 Execution，同时最多关联一个未结束的 Execution。
+
+| 接口 | 输入与输出 | 契约 |
+| --- | --- | --- |
+| id() | 返回 sessionId | 标识当前会话。 |
+| startExecution(sceneVersion, input) | 选定场景版本和本次输入，返回新 Execution | 在归属及有效期校验通过后，确认当前执行已结束，创建并关联新执行。固定本次场景版本，提供可继承上下文。当前执行未结束时返回忙时提示。 |
+| currentExecution() | 返回当前未结束 Execution | 用于关联回复和取消。会话过期或当前执行已结束时，返回相应状态提示。 |
+| finishExecution(execution) | 已确定终态的 Execution | 核对会话归属与当前执行关联，按终态更新会话上下文并释放当前执行关联。重复收尾保持已有结果，旧执行的通知不能影响新执行。 |
+
+F-002 正常完成时更新可继承条件，失败或取消后沿用最近一次正常完成时确定的条件。一次性 Session 随当次 Execution 结束，多轮 Session 按 §4.2.3.6 的有效期规则保存上下文。
+
+##### 4.2.7.2 Execution 接口
+
+Execution 保存 executionId、sessionId、场景版本及规则引用、本次输入、状态、临时上下文、节点运行记录、待补信息、最终结果或错误。节点运行记录以 invocationId 区分同一个 Node 的各次运行。
+
+| 接口 | 输入与输出 | 契约 |
+| --- | --- | --- |
+| id() / sessionId() | 返回执行或所属会话标识 | 用于执行归属与调用关联。 |
+| next() | 返回 ExecutionDecision | 根据当前状态、运行结果和规则确定下一步。返回本次新确定的节点调用、等待信息或终态结果。 |
+| acceptNodeResult(result) | NodeRunResult | 校验执行与调用标识，接收有效结果并更新节点运行信息。由本次规则决定后续处理及适用重试。重复或迟到结果维持已确定状态。 |
+| resume(reply) | UserReply | 校验当前等待、追问关联及回复是否重复，保存有效回复并按续接位置继续。信息仍不足时保持 WAITING_INPUT。 |
+| cancel() | 显式取消请求 | 接受取消后停止触发后续节点，按生命周期规则确认 CANCELLED。M2 入口按依赖能力通知在途调用。 |
+| onTimeout(timeoutEvent) | 适用的超时事件 | 根据本次时限规则判断是否超时，成立时确定失败原因和终态。具体时限见后续运行参数设计。 |
+| snapshot() | 返回 ExecutionSnapshot | 读取当前状态、追问或可获取的结果及结束原因。 |
+
+ExecutionDecision 包含执行状态、本次可执行节点调用集合、待输入提示或终态结果。顺序执行通常返回一个调用，并行时可返回多个调用。RUNNING 且调用集合为空时，可能正在等待在途节点结果。WAITING_INPUT 返回当前追问，终态返回已确定的结果或结束原因。
+
+节点调用被本次推进确定后，其调用标识和分发状态须与 Execution 状态一致记录，重复推进须避免重复提交同一次调用。需要等待在途节点时，在结果或其他有效事件到达后继续推进。
+
+##### 4.2.7.3 Node 接口与调用数据
+
+Node 定义包含场景版本内的节点标识、预定义类型、节点配置及输入输出契约。各次运行的状态保存在所属 Execution 中。
+
+| 接口 | 输入与输出 | 契约 |
+| --- | --- | --- |
+| id() | 返回 nodeId | 唯一标识场景版本内的节点。 |
+| type() | 返回 NodeType | 标识节点的预定义能力类型。 |
+| execute(input, context) | NodeInput、NodeContext，返回 NodeResult | 按节点配置处理输入，返回输出、判断事实、待补信息或错误。 |
+
+| 数据结构 | 主要内容 | 使用要求 |
+| --- | --- | --- |
+| NodeCall | 节点引用、输入、调用上下文 | 由 Execution 根据规则确定。 |
+| NodeContext | executionId、invocationId、追踪标识、可信身份，以及适用时限和取消信号 | 由可信接入和运行环境建立，按节点需要提供。 |
+| NodeResult | 正常输出、控制判断、待补条件或调用错误 | 由 Execution 按场景规则决定继续、等待、重试或结束。 |
+| NodeRunResult | executionId、invocationId、NodeResult | M2 入口接收节点输出或异常后，关联到本次调用并交回 Execution。 |
+| UserReply | 追问标识、回复标识、回复内容 | 服务端校验所属 Session 与当前等待关联。 |
+| ExecutionSnapshot | executionId、状态、追问或结果、结束原因及已确定的可继承上下文 | 对外返回按调用方权限及场景输出契约组织，内部继承信息按会话更新需要使用。 |
+
+模型、工具和知识等依赖能力分别通过 M3、M4、M5 提供。节点返回的判断事实供 Execution 应用规则，后续节点触发与 Execution 状态转换由 Execution 统一决定。
+
+##### 4.2.7.4 Node 类型
+
+| NodeType | 类型 | 处理职责 |
+| --- | --- | --- |
+| MODEL | 模型 | 通过 M3 调用模型并取得解析结果。 |
+| TOOL | 工具 | 通过 M4 调用场景允许的工具。 |
+| KNOWLEDGE_RETRIEVAL | 知识检索 | 通过 M5 检索知识内容与引用依据。 |
+| DOCUMENT_PARSE | 文档解析 | 通过 M5 提取文档文本及结构。 |
+| CODE | 代码处理 | 执行已注册的数据映射、计算或校验逻辑。 |
+| CONDITION | 条件分支 | 计算条件并返回判断结果或分支键。 |
+| PARALLEL | 并行分发 | 组织本次分发数据和候选分支信息。 |
+| JOIN | 结果汇聚 | 对已满足汇聚条件的分支结果进行合并或转换。 |
+| LOOP | 循环 | 计算本轮继续或退出条件，可按场景需要使用模型判断。 |
+| AGENT | Agent 组合 | 按配置策略产生本轮行动建议或完成判断，ReAct 为其中一种策略。 |
+| RETURN | 结果返回 | 整理符合场景输出契约的最终结果。 |
+
+Execution 根据条件结果触发分支，维护并行分支状态并判断汇聚条件，维护循环轮次及退出规则，对 Agent 行动应用工具允许范围、调用限制与终止规则。具体并行失败处理、循环退出条件及 Agent 内部编排继续细化。
+
+用户澄清通过待补信息与 WAITING_INPUT 表达。场景规则决定是否等待用户，F-001、F-003 沿用一次性处理范围，F-002 支持关联回复续接。
+
+##### 4.2.7.5 M2 入口与完整调用链
+
+M2 入口提供 start、reply、cancel 操作，分别用于新调用、当前追问回复和显式取消。取得 Session 及校验会话归属后，按以下过程串接对象方法。
+
+1. 新调用通过 Session.startExecution 创建 Execution。当前追问的回复通过 Session.currentExecution 取得原执行并调用 resume。取消请求作用于当前 Execution 的 cancel。
+2. 入口调用 Execution.next，取得推进决定。
+3. 存在可执行节点时，入口调用对应 Node.execute，将输出或调用错误包装成 NodeRunResult，交给 Execution.acceptNodeResult。Execution 保存运行信息并按规则决定后续处理。
+4. 等待在途节点时，在调用结果到达后继续推进。需要用户输入时，通过 M1 返回追问，Session 继续关联当前 Execution。后续有效回复续接同一执行。
+5. Execution 确定终态后，入口调用 Session.finishExecution，更新会话关联及适用的继承条件，并通过 M1 返回结果或结束原因。
+
+同一 Session 的并发新调用须遵守单个未结束 Execution 的约束。同一次节点结果和同一回复只触发一次有效处理。取消、超时和完成并发到达时，同一 Execution 只确定一次终态及对应结果，终态后的迟到结果保持已确定状态。
+
+本节描述对象调用契约。具体接口路径、数据类型、缓存一致性实现、运行参数、终态结果保留与清理方式留待后续设计。SSE 与执行状态及会话有效期遵循 §4.2.3。
+
+### 与本稿一并审阅的关联修订
+
+为使正文一致，落稿时需同时调整以下位置，具体文字如下。
+
+| 位置 | 拟调整内容 |
+| --- | --- |
+| §3.1.2 P-005 | 将“Runner 负责执行节点”改为“M2 入口执行节点并将结果交回 Execution”。 |
+| §3.1.2 节点类型列表 | 将“十类”改为“十一类”，在“结果汇聚”后增加“循环”，完整列表与 §4.2.7.4 一致。 |
+| §4.2.1 | 将 Runner 职责句改为“M2 入口按 Execution 确定的节点及输入执行调用，将输出或错误交回 Execution”。 |
+| §4.2.2 | 删除 Runner 行，紧接核心对象关系段补充“M2 入口串接 Session、Execution 和 Node 的方法调用，执行节点并交回结果，具体接口与调用链见 §4.2.7”。 |
+| §4.2.3 引导段 | 将末句改为“M2 入口按 Execution 确定的可执行节点执行调用并交回结果”。 |
+| §4.2.3.2 | 将“Runner 执行节点并交回结果”改为“M2 入口执行节点并交回结果”。 |
+| §4.2.3.3 | 将“由 Runner 执行”改为“由 M2 入口执行”。 |
+| §4.2.4 引导段 | 将“Runner 执行节点”改为“M2 入口执行节点并回传结果”。 |
+| §4.2.4 第 2、3 步 | 分别将“交给 Runner 执行”改为“交给 M2 入口执行”，将“Runner 将节点输出或调用错误交回 Execution”改为“M2 入口将节点输出或调用错误交回 Execution”。 |
+| §4.2.6 F-001 段 | 将末句改为“M2 入口执行各次已满足触发条件的 Node”。 |
+
+本轮获确认的细化包括十一类 NodeType，以及将顺序 Java 示例的单节点推进结果扩展为节点调用集合并表达等待在途结果。上述内容已随本稿落入说明书。
