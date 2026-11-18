@@ -1,46 +1,21 @@
 # 当前项目 Handoff
 
-更新于 2026-11-17（Asia/Shanghai）。业务结论以[唯一说明书 V2](../baseline/specificationV2.md)为准。
+更新于 2026-11-18（Asia/Shanghai）。当前处于需求与架构文档阶段，业务结论见[唯一说明书 V2](../baseline/specificationV2.md)。
 
-## 当前阶段与版本
+## 新对话从这里继续
 
-- 当前处于需求分析与需求级架构文档阶段。业务工程实现及外部接入验证尚待开展。
-- M1 场景定义与管理需求完成，具体接入交互待细化。M2 已形成对象关系、生命周期、业务场景映射及对象接口契约候选稿。M3—M7 的细化仍待开展。
-- 当前任务为 `module4.2_deep_design`，负责人为 `BlackWhaleK`，范围为 M2 模块细化。
-- 工作分支为 `docs/BlackWhaleK/module4.2_deep_design`，本任务使用独立 worktree，续接时通过 `git worktree list` 定位。
-- 任务起点 main 提交为 `ab2dbc03842fed774812c5a03e890a4008c70af0`。本轮已 fetch 并核对的 `origin/main` 仍为该提交。
-- 本轮成果已获用户确认并写入工作分支候选稿，合入 main 继续遵循 PR 审阅与人工确认流程。
+下一专题为 M1 场景服务设计，负责人为 `BlackWhaleK`。按用户指定，继续使用 `docs/BlackWhaleK/M2_FINISH` 分支及其同名远端分支。本机 worktree 为 `D:/astraCore-K/.worktrees/M2_FINISH`，也可用 `git worktree list` 定位。任务来源 main 为 `a17ccc75163d269aa3da9555dce285306191a953`。续接应以该工作分支的候选说明书为起点。
 
-## 已确认并落稿
+在该 worktree 中依次读取 AGENTS.md、README.md、[说明书](../baseline/specificationV2.md)及本交接。M1 的业务入口是 §4.1.1—§4.1.2，P-001—P-003 给出平台能力范围。如需续接任务记录，见 [M1 任务 Handoff](../../collaboration/tasks/M1_scene_design/handoff.md)。
 
-- **对象层级与职责**见 §4.2.1—§4.2.2。Session 包含一次或多次 Execution，Execution 保存规则、状态和运行信息，Node 完成具体处理。M2 入口承担节点调用、错误转换、结果回传及会话收尾。
-- **Execution 生命周期**见 §4.2.3。采用 RUNNING、WAITING_INPUT、SUCCEEDED、FAILED、CANCELLED 五状态。澄清通过同一 Session 续接原 Execution，重复回复只触发一次续接，终态只确认一次。
-- **交互与条件继承**见 §4.2.3。调用方显式区分澄清回复与独立问题，忙时提示用户稍后重新提交或先取消。F-002 正常完成后更新可继承条件，失败或取消后沿用最近一次正常完成时确定的条件。
-- **临时状态与 SSE**见 §4.2.3。Session 与 Execution 使用临时缓存，按最近一次有效对话续期，连续 8 小时无有效对话后过期。SSE 生命周期与执行独立。后端重启后允许会话失效并提示重新发起。
-- **对象关系与业务映射**见 §4.2.4、§4.2.6。F-001、F-003 为一次性处理，F-002 支持同一会话内多次执行及澄清续接。
-- **对象接口契约**见 §4.2.7。已落稿 Session、Execution、Node 接口与调用数据，Runner 的职责已合并到 M2 入口。推进结果支持节点调用集合及等待在途结果，重复分发、并发终态和会话收尾需保持一致。
-- **节点类型**见 §3.1.2、§4.2.7.4。定义模型、工具、知识检索、文档解析、代码处理、条件分支、并行分发、结果汇聚、循环、Agent 组合和结果返回十一类，ReAct 属于 Agent 策略。
-- 已删除空的 §4.2.5，后续章节沿用原编号。P-005 与第 4 章相关职责表述已同步调整。
+## 已确认并落入候选稿
 
-## 下次讨论入口
+- **M1 职责与协作（§4.1.1）。** 新调用由调用方明确提供场景标识和版本号。M1 保留各版本记录，查找指定版本、校验输入并将编排交给 M2。指定版本不存在时，M1 在入口返回提示。人工反馈关联原 Execution，并沿用启动时的编排。
+- **M1 核心对象（§4.1.2）。** SceneDefinition、SceneVersion 描述场景及版本。SceneManagementService 登记和查询，SceneInvocationService 对外提供 start、reply、cancel。SceneRequest 与 SceneResponse 表达请求及响应，一次 Execution 可关联多次请求。
+- **M2 已有运行契约（§4.2）。** Session、Execution、Node 的协作及接口见 §4.2.1—§4.2.7。§4.2.8 已完成首期运行规则、参数及七项验证预期，覆盖人工反馈、循环和 Agent 限制、超时、重试、并行汇聚、刷新与结果交付。8 小时用于会话空闲有效期，实际运行时限可配置。页面刷新开启新 Session，SSE 单纯断线由原 Execution 按生命周期继续推进。
 
-建议从 **§4.2.8 运行参数与验证**开始，先明确执行总时限、等待输入时限、依赖调用超时及重试上限、循环与 Agent 的轮次限制，再确定验证场景和验收检查点。
+## M1 接下来可讨论的内容
 
-设计并行规则时需补足分支失败处理、汇聚条件和循环退出条件。对接口落地继续明确 Session 标识携带与归属校验、结果获取范围及清理时点，具体 Java 类型和传输路径随后设计。
+建议先用一次 `start`、一次 `reply`、一次 `cancel` 对照 §4.1.2，细化每种操作需要的输入、身份及关联标识、M1 返回的响应，以及向 M2 交付的内容。可用 F-002 的追问与回复验证请求和 Execution 的关联，再用 F-001 或 F-003 检查一次性调用的结果交付。具体接口字段、传输路径、SSE 输出与页面交互仍待讨论，以上顺序为建议。
 
-## 待确认与未验证
-
-- 新 Execution 的场景版本选择策略、Session 的创建与查找实现。
-- 并行失败处理、循环退出、Agent 内部编排及调用限制。
-- 时限与重试取值、等待输入是否单设超时、缓存并发更新及具体分发实现。
-- 终态结果保留和获取范围、清理时点，以及具体协议和数据类型。
-- 本任务两份 Java 文件为前期对象协作示例，已通过 Java 17 编译检查，调用流程尚未运行。其中独立 Runner 和顺序推进写法已被本轮契约调整，后续设计应以说明书为准。
-- 模型、工具及知识接口的真实能力、取消效果和技术兼容性尚未验证，技术验证范围见 §2.3.3。
-
-## 发布与续接
-
-- 用户本轮明确确认 §4.2.7 及关联修订落稿，并授权更新交接材料、提交和推送工作分支。
-- 远端仓库为 [blackWhaleK/astra-core](https://github.com/blackWhaleK/astra-core)，推送目标为 `origin/docs/BlackWhaleK/module4.2_deep_design`。发布结果需以本地 HEAD 与远端同名分支核对。
-- 本轮检查覆盖审阅稿逐段一致性、完整差异、章节引用、P/F 稳定编号、相对链接及文档状态。文档检查与业务接入验证分别记录。
-- 继续本任务时读取[任务 Handoff](../../collaboration/tasks/module4.2_deep_design/handoff.md)，按需要读取本任务[纪要](../../collaboration/tasks/module4.2_deep_design/notes.md)和[提案](../../collaboration/tasks/module4.2_deep_design/proposal.md)。后续说明书修改继续先提交拟稿确认。
-- 新专题按 AGENTS、README、唯一说明书及本文件建立上下文，使用独立任务目录和工作分支。
+新方案先在对话中展示，待用户明确确认落稿后再修改候选说明书。当前成果为工作分支文档，实际业务实现、接口接入和运行验证尚待开展。
