@@ -1,12 +1,18 @@
 # 任务提案：M3_DESIGN
 
-状态：P-008 与 §4.3.1—§4.3.2 已获用户同意并写入分支候选稿，未合并。早期选型保留作讨论依据；以[唯一说明书](../../../docs/baseline/specificationV2.md)为准。
+状态：P-008 与 §4.3.1—§4.3.3 已获用户同意并写入分支候选稿，未合并。早期选型保留作讨论依据；以[唯一说明书](../../../docs/baseline/specificationV2.md)为准。
 
 ## 目标与依据
 
 按[说明书](../../../docs/baseline/specificationV2.md) §3.1.3，以 P-008、P-009、P-010、P-025 为范围，从 F-001 的一次意图识别讨论 M2 与 M3 的分工。具体意图取值由场景提供，不写入通用 M3。实际模型接口能力未验证。
 
 ## 候选修订
+
+### §4.3.3 模型与提示词接口契约（已确认，已落稿）
+
+已确认由 ModelInvocationService 对模块外公开三个逻辑操作：登记时 checkBinding(binding) 按固定引用检查模板和契约；M2 节点以 call(request) 同步取得一个 ModelCallResult，或以 stream(request, onDelta) 接收零到多个 ModelTextDelta 并最终取得一个 ModelCallResult。节点上下文中适用的时限、取消信号及调用关联不写入提示词；不规定阻塞、并发或传输实现。
+
+PromptTemplate.render(variables) 生成本次模板内容或说明缺少哪个必填变量；ModelOutputContract.parseAndValidate(completeOutput) 解析校验完整输出，返回业务载荷或具体无效原因。两者为 M3 内部操作。ModelNodeBinding、ModelCallRequest、ModelCallResult、ModelTextDelta 是数据契约，不另设管理服务。同步和流式共用输入组织及最终校验，片段不推进节点；最终结果由 M2 节点映射到 NodeResult，Execution 不由 M3 直接操作。
 
 ### 本轮落稿范围
 
