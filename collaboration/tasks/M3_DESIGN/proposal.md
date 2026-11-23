@@ -1,12 +1,20 @@
 # 任务提案：M3_DESIGN
 
-状态：P-008 与 §4.3.1—§4.3.3 已获用户同意并写入分支候选稿，未合并。早期选型保留作讨论依据；以[唯一说明书](../../../docs/baseline/specificationV2.md)为准。
+状态：P-008 与 §4.3.1—§4.3.4 已获用户同意并写入分支候选稿，未合并。早期选型保留作讨论依据；以[唯一说明书](../../../docs/baseline/specificationV2.md)为准。
 
 ## 目标与依据
 
 按[说明书](../../../docs/baseline/specificationV2.md) §3.1.3，以 P-008、P-009、P-010、P-025 为范围，从 F-001 的一次意图识别讨论 M2 与 M3 的分工。具体意图取值由场景提供，不写入通用 M3。实际模型接口能力未验证。
 
 ## 候选修订
+
+### §4.3.4 核心对象关联关系与执行流程（已确认，已落稿）
+
+登记阶段：场景版本中的每个模型节点用 ModelNodeBinding 固定 PromptTemplate、ModelOutputContract 的引用及调用方式。登记方调用 ModelInvocationService.checkBinding；引用缺失则拒绝登记，不调用模型。
+
+运行阶段：以 F-001 本人请假意图识别为例，M2 节点从启动版本取得绑定，连同本次文本、变量及适用 memory 组成 ModelCallRequest。ModelInvocationService.call 调用模板的 render，组织输入，通过 ChatModel 取得完整输出，交给输出契约的 parseAndValidate 检查。一个 ModelCallResult 将有效意图或具体失败原因交回 M2 节点，节点映射为 NodeResult，由 Execution 决定后续处理；本次 M3 调用不生成最终填表结果。
+
+F-002 流式节点沿用同一条主线，仅调用与交付不同：stream(request, onDelta) 先交付零到多个 ModelTextDelta，完整输出经同一节点契约校验后才交付最终结果。模型流中断则返回失败，不把已展示片段当作完整输出；浏览器 SSE 断线不是模型流中断。
 
 ### §4.3.3 模型与提示词接口契约（已确认，已落稿）
 
