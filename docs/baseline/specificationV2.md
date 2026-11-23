@@ -104,7 +104,7 @@ M2 对应的工程包名由原文的 `runtime` 调整为 `engine`，仍承担执
 
 | 技术项 | 选型与范围 |
 | --- | --- |
-| 基础框架 | JDK 17、Spring Boot 3.4.x、Spring AI 1.0.x |
+| 基础框架 | JDK 17、Spring Boot 3.5.x、Spring AI 1.1.x |
 | 服务接口 | Spring MVC + REST + SSE；Spring AI 提供模型流式调用，Spring MVC 负责向客户端输出 SSE |
 | 模型接入 | 按 OpenAI 兼容协议接入；内部模型适配由人工调整，本轮不展开 FastAI 实现 |
 | 数据持久化 | GaussDB + JDBC + MyBatis，保存知识管理元数据等必要平台数据；不持久化上传报告、会话和执行记录 |
